@@ -5,7 +5,7 @@ import get_solver_cmpc as cmpc
 import numpy as np
 import yaml
 ## Load parameters from config file
-with open('Config_Crazyflie.yaml') as f:
+with open('Config_Crazyflie_V2.yaml') as f:
     system_parameters = yaml.load(f,Loader=yaml.FullLoader)
 
 qtm_ip = system_parameters['qtm_ip']
@@ -16,27 +16,45 @@ uris = system_parameters['uris']
 drone_bodies = system_parameters['drone_bodies']
 
 ## Load Trajectories for drones:
-ref = {}
-vref = {}
-full_ref1 = trajgen_thinh.get_ref_setpoints_Khanh(psi=0,Tsim=Tsim,dt=Ts,agent=1)
-full_ref2 = trajgen_thinh.get_ref_setpoints_Khanh(psi=0,Tsim=Tsim,dt=Ts,agent=2)
-full_ref3 = trajgen_thinh.get_ref_setpoints_Khanh(psi=0,Tsim=Tsim,dt=Ts,agent=3)
+# ref = {}
+# vref = {}
+# full_ref1 = trajgen_thinh.get_ref_setpoints_Khanh(psi=0,Tsim=Tsim,dt=Ts,agent=1)
+# full_ref2 = trajgen_thinh.get_ref_setpoints_Khanh(psi=0,Tsim=Tsim,dt=Ts,agent=2)
+# full_ref3 = trajgen_thinh.get_ref_setpoints_Khanh(psi=0,Tsim=Tsim,dt=Ts,agent=3)
 
 # full_ref1 = trajgen_thinh.get_ref_setpoints(psi=0,Tsim=Tsim,dt=Ts,version=11)
 # full_ref2 = trajgen_thinh.get_ref_setpoints(psi=0,Tsim=Tsim,dt=Ts,version=12)
 # full_ref3 = trajgen_thinh.get_ref_setpoints(psi=0,Tsim=Tsim,dt=Ts,version=13)
-ref = {uris[0]: full_ref1["trajectory"],
-       uris[1]: full_ref2["trajectory"],
-      uris[2]: full_ref3["trajectory"]} 
+# ref = {uris[0]: full_ref1["trajectory"],
+#        uris[1]: full_ref2["trajectory"],
+#       uris[2]: full_ref3["trajectory"]} 
 
-vref = {uris[0]: full_ref1["v_ref"],
-        uris[1]: full_ref2["v_ref"],
-        uris[2]: full_ref3["v_ref"]}
+# vref = {uris[0]: full_ref1["v_ref"],
+#         uris[1]: full_ref2["v_ref"],
+#         uris[2]: full_ref3["v_ref"]}
 
 # print(np.size(ref[uris[0]],1))
 # vref[uris[0]] = np.zeros((np.size(ref[uris[0]],0),3))
 # vref[uris[1]] = np.zeros((np.size(ref[uris[1]],0),3))
 # vref[uris[2]] = np.zeros((np.size(ref[uris[2]],0),3))
+
+
+ptf = './Trajectory/traj4UAVs_Vincent3.mat'
+full_ref = trajgen_thinh.get_trajectory_mat(path_to_file=ptf,dt=Ts)
+
+ref = {}
+
+vref = {}
+for i in range(len(drone_bodies)):
+    ref[uris[i]] = full_ref[i]["trajectory"]
+
+    vref[uris[i]] = full_ref[i]["v_ref"]
+
+
+
+
+######
+
 common_plant,common_controller = cmpc.load_constant_parameters(Ts=Ts)
 drone_params = {}
 for i in range(len(drone_bodies)):
@@ -45,45 +63,77 @@ for i in range(len(drone_bodies)):
 
 central_plant,central_controller,simulator = cmpc.get_stacked_drones_parameters(list_of_drones=drone_params)
 simulator['Nsim'] = np.size(ref[uris[0]],0)
-CMPC_solver,CMPC_solver_variables = cmpc.get_solver_cmpc(plant=central_plant,controller=central_controller,simulator=simulator)
+# CMPC_solver,CMPC_solver_variables = cmpc.get_solver_cmpc(plant=central_plant,controller=central_controller,simulator=simulator)
 
 
 simulator['u_sim'] = np.zeros((common_plant['du'],simulator['Nsim'],simulator['na']))
 simulator['x_sim'] = np.zeros((common_plant['dx'],simulator['Nsim']+1,simulator['na']))
-simulator['U_total'] = np.zeros((central_plant['du'],simulator['Nsim']))
-simulator['X_total'] = np.zeros((central_plant['dx'],simulator['Nsim']+1))
+
 for i in range(simulator['na']):
     simulator['u_sim'][:,:,i] = np.zeros((common_plant['du'],simulator['Nsim']))
     simulator['x_sim'][:,0,i] = ref[uris[i]][0,:].T 
 
 
+###############
+
+import get_solver_CBFQP as cbfqp
+solver = {}
+dc=0.1
+a1=6
+a2=8
+for i in range(len(drone_bodies)):
+    solver[drone_bodies[i]] = cbfqp.CBFQPSolver(v_ref0=vref[uris[i]][0,:],
+                                             x_ref0=ref[uris[i]][0,:],
+                                             x0=simulator['x_sim'][:,0,i],
+                                             a1=a1, a2=a2,dc=dc)
+    res = solver[drone_bodies[i]].prob.solve()
+    res = solver[drone_bodies[i]].prob.solve()
+    res = solver[drone_bodies[i]].prob.solve()
+    print(res.x)
+
+
+
+####
+
 k = 0
+Kf = {}
+for i in range(len(drone_bodies)):
+    Kf[uris[i]]  =  -2.0 *  np.array([[2.5, 0, 0, 3.5, 0, 0],
+                                    [0, 2.5, 0, 0, 3.5, 0],
+                                    [0, 0, 2.5, 0, 0, 3.5]]) #gain matrix obtained from LQR
 import time 
 start = time.perf_counter()
 while(k< simulator['Nsim']):
     tic = time.perf_counter()
-    if k==0:
-        u_init = np.zeros((central_plant['du'],1))
-    else:
-        u_init = simulator['U_total'][:,k-1]
+    # if k==0:
+    #     u_init = np.zeros((central_plant['du'],1))
+    # else:
+    #     u_init = simulator['U_total'][:,k-1]
     
-    simulator['X_ref'] = cmpc.get_ref_pred_horz(ref=ref,k=k,Npred=common_controller['Npred']+1,uris=uris)
-    simulator['v_ref'] = cmpc.get_ref_pred_horz(ref=vref,k=k,Npred=common_controller['Npred'],uris=uris)
-    for i in range(simulator['na']):
-        simulator['X_total'][i*(common_plant['dx']):(i+1)*(common_plant['dx']),k] = simulator['x_sim'][:,k,i]
+    # simulator['X_ref'] = cmpc.get_ref_pred_horz(ref=ref,k=k,Npred=common_controller['Npred']+1,uris=uris)
+    # simulator['v_ref'] = cmpc.get_ref_pred_horz(ref=vref,k=k,Npred=common_controller['Npred'],uris=uris)
+    # for i in range(simulator['na']):
+    #     simulator['X_total'][i*(common_plant['dx']):(i+1)*(common_plant['dx']),k] = simulator['x_sim'][:,k,i]
     
-    simulator['U_total'][:,k] = cmpc.compute_control_cmpc(solver=CMPC_solver,solver_variables=CMPC_solver_variables,X0=simulator['X_total'][:,k],
-                              v0=u_init,Xrefk=simulator['X_ref'],vrefk = simulator['v_ref'],yawk = 0)
+    # simulator['U_total'][:,k] = cmpc.compute_control_cmpc(solver=CMPC_solver,solver_variables=CMPC_solver_variables,X0=simulator['X_total'][:,k],
+    #                           v0=u_init,Xrefk=simulator['X_ref'],vrefk = simulator['v_ref'],yawk = 0)
     controls = {}
     for i in range(simulator['na']):
-        simulator['u_sim'][:,k,i] = simulator['U_total'][i*(common_plant['du']):(i+1)*(common_plant['du']),k]
-
+        # simulator['u_sim'][:,k,i] = simulator['U_total'][i*(common_plant['du']):(i+1)*(common_plant['du']),k]
+        solver[drone_bodies[0]].update(v_ref=vref[uris[0]][k,:],
+                     x_ref=ref[uris[0]][k,:],
+                    x=simulator['x_sim'][:,k,0],)
+        res = solver[drone_bodies[0]].prob.solve()
+        simulator['u_sim'][:,k,i] = res.x * 0 +  ctrl.compute_control(v_ref=vref[uris[i]][k,:],
+                                                                 x0=simulator['x_sim'][:,k,i],
+                                                                 xref=ref[uris[i]][k,:],
+                                                                 Kf=Kf[uris[i]])
         # compute real control u
         controls[uris[i]] = ctrl.get_real_input(v_controls=simulator['u_sim'][:,k,i],yaw=0)
         
         # disturbance
         disturb = np.zeros((1,3))
-        disturb = disturb + np.random.normal(loc=0.0,scale=0.03,size=(1,3))
+        disturb = disturb + np.random.normal(loc=0.0,scale=0.05,size=(1,3))
         simulator['x_sim'][:,k+1,i] = CFmodel.CFmodel(xk=simulator['x_sim'][:,k,i],urk= controls[uris[i]],plant=common_plant,disturb=disturb)
 
     k = k+1 
@@ -95,6 +145,12 @@ calcul_t = end-start
 
 print('Calulation time : ',calcul_t)
 print('Average calculation time : ',calcul_t/simulator['Nsim'])
+
+
+
+
+##############
+
 # plot result
 
 import matplotlib.pyplot as plt
