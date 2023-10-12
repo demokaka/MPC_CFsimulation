@@ -473,6 +473,86 @@ def get_trajectory_mat(path_to_file,dt,psi=0):
 
     return ref
 
+def get_ref_setpoints_all(path_to_file,dt,Tsim,psi=0):
+    g = 9.81
+    sim_data = loadmat(path_to_file)
+    x = sim_data["x"] - 0.5
+    y = sim_data["y"] 
+    z = sim_data["z"] 
+
+    vx = sim_data["vx"]
+    vy = sim_data["vy"]
+    vz = sim_data["vz"]
+
+    ax = sim_data["ax"]
+    ay = sim_data["ay"]
+    az = sim_data["az"]
+
+    nbr_agents = np.size(x,0)
+    # Tsim = dt*(np.size(x,1))
+    knot = [0, Tsim]
+    tt = np.arange(0, Tsim+dt, dt)
+    W = {}
+    ref_full = {}
+    v_ref = {}
+    thrust = {}
+    phi = {}
+    theta = {}
+    for i in range(nbr_agents):
+        W[i] = np.zeros((6,x[i,:].shape[0]))
+        # print(W)
+        W[i][0,:] = x[i,:]
+        W[i][1,:] = y[i,:]
+        W[i][2,:] = z[i,:]
+        W[i][3,:] = vx[i,:]
+        W[i][4,:] = vy[i,:]
+        W[i][5,:] = vz[i,:]
+
+
+        k_pass = 1
+        ref_tmp = np.empty((0, 6))
+        waypoint_time_stamps = np.linspace(min(knot), max(knot), W[i].shape[1] + 1)
+        for i_tmp in range(waypoint_time_stamps.shape[0] - 1):
+            cur = np.array(W[i][:, i_tmp])
+            while dt * k_pass <= waypoint_time_stamps[i_tmp + 1]:
+                ref_tmp = np.vstack((ref_tmp, cur))
+                k_pass = k_pass + 1
+
+        ref_full[i] = ref_tmp
+        k_pass = 1
+        ref_tmp = np.empty((0, 3))
+        accel = np.zeros((3,x[i,:].shape[0]))
+        # print(W[0:3,-3:-1])
+        accel[0,:] = ax[i,:].transpose()
+        # accel[0,:] = np.append(accel[0,:-1],0)
+        accel[1,:] = ay[i,:].transpose()
+        # accel[1,:] = np.append(accel[1,:-1],0)
+        accel[2,:] = az[i,:].transpose()
+        # accel[2,:] = np.append(accel[2,:-1],0)
+        # waypoint_time_stamps = np.linspace(min(knot), max(knot), W.shape[1] + 1)
+        for i_tmp in range(waypoint_time_stamps.shape[0] - 1):
+            cur = np.array(accel[:, i_tmp])
+            while dt * k_pass <= waypoint_time_stamps[i_tmp + 1]:
+                ref_tmp = np.vstack((ref_tmp, cur))
+                k_pass = k_pass + 1
+        v_ref[i] = ref_tmp.transpose()
+
+        ddx, ddy, ddz = v_ref[i][0, :], v_ref[i][1, :], v_ref[i][2, :]
+        thrust[i] = np.sqrt(ddx ** 2 + ddy ** 2 + (ddz + 9.81) ** 2)
+        phi[i] = np.arcsin((ddx * np.sin(psi) - ddy * np.cos(psi)) / thrust[i])
+        theta[i] = np.arctan((ddx * np.cos(psi) + ddy * np.sin(psi)) / (ddz + g))
+
+    ref = {}
+    for i in range(nbr_agents):
+        ref[i] = {
+        "trajectory": ref_full[i],
+        "time_step": tt,
+        "thrust": thrust[i],
+        "phi": phi[i],
+        "theta": theta[i],
+        "Nsim": tt.shape[0],
+        "v_ref": v_ref[i].transpose()}
+    return ref
 
 if __name__=="__main__":
 
@@ -538,8 +618,8 @@ if __name__=="__main__":
     #             [0.0, 0.0],
     #             [0.7, 0.7]  # 3D test
     #             ])
-    Tsim = 30
-    Ts = 0.2
+    Tsim = 20
+    Ts = 0.1
     rref = get_ref_setpoints_Khanh(psi=0,Tsim=Tsim,dt=Ts,agent=1)
     # rref = get_ref_setpoints(psi=0,Tsim=Tsim,dt=Ts,version=12)
     full_ref_takeoff = get_ref_setpoints_takeoff(psi=0,Tto=10,dt=0.2,ref=rref['trajectory'])

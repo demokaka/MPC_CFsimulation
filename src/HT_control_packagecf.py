@@ -41,7 +41,7 @@ def get_real_input(v_controls,yaw):
     # print("Vcontrols 0 = ",v_controls[0])
     # print("Vcontrols 1 = ",v_controls[1])
     # print("Vcontrols 2 = ",v_controls[2])
-    print(T)
+    # print(T)
     phi = np.round(np.arcsin((v_controls[0] * np.sin(yaw) - v_controls[1] * np.cos(yaw)) / T), 5)
     theta = np.round(np.arctan((v_controls[0] * np.cos(yaw) + v_controls[1] * np.sin(yaw)) / (
                 v_controls[2] + g)), 5)
@@ -64,6 +64,13 @@ def get_cf_input(v_controls, yaw, T_coeff=23.5, desired_yaw = 0, alpha=1.000, ma
     controls_cf = [Roll+bias[0], Pitch+bias[1], Yawrate, Thrust_pwm]
     return controls_cf
 
+def saturation(x,min,max):
+    if x < min:
+        return min
+    elif x>max:
+        return max
+    else:
+        return x
 if __name__=='__main__':
 
     Thrust_calcul = 2

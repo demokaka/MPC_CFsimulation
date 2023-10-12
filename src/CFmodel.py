@@ -10,7 +10,7 @@ def CFmodel(xk,urk,plant,disturb=0):
 
     # Thrust coefficient depending on the masses of the drone and the carried batterie
     m = 33.0
-    mreal = 33.0
+    mreal = 35.0
     T = T * m / mreal
     uk[0,0] = T * (np.cos(phi)*np.sin(theta)*np.cos(psi) + np.sin(phi)*np.sin(psi)) + disturb[0,0] + .0
     uk[1,0] = T * (np.cos(phi)*np.sin(theta)*np.sin(psi) - np.sin(phi)*np.cos(psi)) + disturb[0,1] + .0

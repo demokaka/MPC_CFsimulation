@@ -29,7 +29,7 @@ mass:
 
 Ts: 0.1
 
-Tsim: 30
+Tsim: 20
 
 T_coeff:
 - 1
